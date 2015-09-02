@@ -623,7 +623,7 @@ leaving: b
 
 Go 有兩個配置資源的內建函式：*new* 和 *make*。兩者適用於不同的場合，也許看起來有點讓人容易搞混，但其實很簡單。我們世來看 *new*。雖然它確實會配置記憶體，但不像在其他語言那樣，Go 的 new 函式不會「建構」它 (譯註)，只會填入零值。也就是說，`new(T)` 配置了一塊記憶體，填入符合 *T* 型別的零值，然後把位址傳回來。用 Go 的講法，就是回傳一個 *T* 型別的指標，記憶體內容是零值。
 
-譯註：原文 but unlike its namesakes in some other languages it does not initialize the memory 中的 initialize 通常翻成「初始化」，但此處語意應該是「不像 C++ 或 Java 那樣會幫你呼叫建構子 (constructor) *處理成員的初始值*」，所以改譯為「建構」。
+譯註：原文 *but unlike its namesakes in some other languages it does not initialize the memory* 中的 *initialize* 通常翻成「初始化」，但此處語意應該是「不像 C++ 或 Java 那樣會幫你呼叫建構子 (constructor) *處理成員的初始值*」，所以改譯為「建構」。
 
 既然 *new* 會為你填入零值，你可以把你的資料結構設計成零值就能用，那麼寫起程式來就會方便很多。比如像 *bytes.Buffer* 的說明文件：the zero value for Buffer is an empty buffer ready to use. (Buffer 的零值就是一個空 buffer 並且可以直接使用)。類似地，*sync.Mutex* 並沒有建構子，但它的零值就是一個解開 (unlock) 的鎖。
 
@@ -646,3 +646,273 @@ var v SyncedBuffer      // type  SyncedBuffer
 譯註：因為 *SyncedBuffer* 的所有成員都符合這個零值就能使用的特性，所以它本身也可以直接使用。
 
 ### 建構子及複合結構的表達式 (literal)
+
+有時候零值實在無法符合我們的需求，這時候就要乖乖寫建構子了。以下是從 *os* 套件節錄出來的一小段程式：
+
+```go
+func NewFile(fd int, name string) *File {
+    if fd < 0 {
+        return nil
+    }
+    f := new(File)
+    f.fd = fd
+    f.name = name
+    f.dirinfo = nil
+    f.nepipe = 0
+    return f
+}
+```
+
+這寫法真是又臭又長，而我們可以用複合結構表達式來簡化它。複合結構表達式是一段敘述，當執行這段敘述的時候會產生一個實體。
+
+```go
+func NewFile(fd int, name string) *File {
+    if fd < 0 {
+        return nil
+    }
+    f := File{fd, name, nil, 0}
+    return &f
+}
+```
+
+有件事值得注意：在 Go 語言中回傳區域變數的位址是很正常的，它不會因為函式結束而被釋放掉。事實上，對複合結構表達式取址的時候，會產生另一個新的實體，所以我們應該把兩行再縮成一行
+
+```go
+return &File{fd, name, nil, 0}
+```
+
+當你使用上面那種複合結構表達式的時候，結構中所有的屬性都必須依順序給予一個值。如果你想省略零值，可以用 **label: value** 這樣的形式來為非零的屬性賦值。
+
+```go
+return &File{fd: fd, name: name}
+```
+
+如果在複合結構表達式中沒有對任何屬性賦值，那麼產生出來的實體就會是零值。也就是說 *new(File)* 跟 *&File{}* 是等價的。
+
+複合結構表達式也可以用來產生 array, slice 或是 map：屬性的標籤是索引 (當然型別必須相符)。
+
+```go
+a := [...]string   {Enone: "no error", Eio: "Eio", Einval: "invalid argument"}
+s := []string      {Enone: "no error", Eio: "Eio", Einval: "invalid argument"}
+m := map[int]string{Enone: "no error", Eio: "Eio", Einval: "invalid argument"}
+```
+
+### 用 make 來配置
+
+內建的 *make(T, args)* 函式雖然也是配置，但與 *new(T)* 完全不同。它是專門用來配置 slice, map 以及 channel 用的，而且它回傳的會是「初始化」過的 *T* 型別 (不是 `*T` 型別，也不是零值)。這三種型別會參考到一些必須要初始化的內部資料結構，所以需要另外處理。像是 slice，其實是一個資料結構，記載了指標 (指向陣列中的資料)，長度和容量。如果這三者沒有被初始化的話， slice 就是 nil。所以 *make* 會初始化 slice, map 和 channel 的內部資料結構以備使用。例如：
+
+```go
+make([]int, 10, 100)
+```
+
+會配置一個承載 int 的 slice，長度是 10，最大容量是 100，並且有一個指標指向最前面的 10 個 int。配置 slice 的時候可以省略容量參數，之後在有關 slice 的章節會有更詳細的討論。反過來說，*new([]int)* 回傳的是一個指標，指向了新配置的，填入零值的 slice 內部結構；也就是一個指向 nil slice 的指標。
+
+以下說明了 *new* 和 *make* 的差別
+
+```go
+var p *[]int = new([]int)       // allocates slice structure; *p == nil; rarely useful
+var v  []int = make([]int, 100) // the slice v now refers to a new array of 100 ints
+
+// Unnecessarily complex:
+var p *[]int = new([]int)
+*p = make([]int, 100, 100)
+
+// Idiomatic:
+v := make([]int, 100)
+```
+
+要注意的是 *make* 只能配置 slice, map 或是 channel，而且它回傳的不是指標。如果一定要指標的話，你得用 *new* 去處理。(譯註：像上面那個例子中，比較複雜的那部份一樣)
+
+### Array
+
+譯註：array 通常譯為陣列，但在 Go 語言中，array 十分容易與 slice (通常譯為片段)搞混。兩者在 Go 語言中的意涵與其他語言不大相同，可以算是專有名詞，故以下都不做翻譯，藉此提升讀者對這兩個名詞的熟悉度。而「陣列」一詞則會泛指類 C 語言中的陣列的行為。
+
+Array 在規劃記憶體的時候相當實用，有時候還可以用來避免不必要的資源配置動作。不過它最主要的功能還是做為 slice 的基底，slice 在下一節會討論。做為 slice 的先備知識，這裡提出一些 array 的特點。
+
+Array 在 Go 和 C 語言之間有些重大的不同：
+
+* Go 語言的 array 是單純的值。把 array 指定給變數的時候會複製一份副本。
+* 同樣的，把 array 當成參數傳入函式的時候，函式內收到的會是副本。
+* array 的長度是型別的一部份，也就是說 `[10]int` 和 `[20]int` 屬於不同型別。
+
+Array 是值這件事有時候很有用，有時候卻代價高昂。如果你需要類似 C 語言陣列那樣的行為，你可以用指標：
+
+```go
+func Sum(a *[3]float64) (sum float64) {
+    for _, v := range *a {
+        sum += v
+    }
+    return
+}
+
+array := [...]float64{7.0, 8.5, 9.1}
+x := Sum(&array)  // Note the explicit address-of operator
+```
+
+不過這不是 Go 語言的慣例，我們應該用 slice。
+
+### Slice
+
+Slice 可以說是在 array 外面包了一層，提供更方便有效的介面存取一連串的資料。除了像是處理矩陣這種事之外，在 Go 語言中大部份的陣列操作都是用 slice 完成的。
+
+Slice 會有一個指向內部 array 的指標，如果你把一個 slice 指定給另一個，兩個都會指向同一個 array。如果你把 slice 當成參數傳入函式，那麼在函式內部對 slice 元素做的改變，函式之外也會存取得到，如同你傳入的是指標一樣。所以 *Read* 函式接受 slice 當參數，而不是一個指標配上一個整數：slice 的長度指出了有多少資料可以讀取。以下是在 *os* 套件中，*File* 型別對於 *Read* 方法的定義：
+
+```go
+func (f *File) Read(buf []byte) (n int, err error)
+```
+
+這個方法回傳「讀到了幾 bytes」和一個錯誤值 (如果有錯誤的話)。如果你想把資料讀進某個緩衝區的前 32 bytes，就該把它切成 slice：
+
+```go
+n, err := f.Read(buf[0:32])
+```
+
+這種用法很常見，效率也很高。老實說，如果不考慮效率的話，以下的程式碼也可以達成相同的事
+
+```go
+var n int
+var err error
+for i := 0; i < 32; i++ {
+    nbytes, e := f.Read(buf[i:i+1])  // Read one byte.
+    if nbytes == 0 || e != nil {
+        err = e
+        break
+    }
+    n += nbytes
+}
+```
+
+在不超出內部 array 的範圍之內，你可以任意的改變 slice 的長度：只要把它切成另一個 slice 就好了。而 slice 的容量可以透過內建的 *cap* 函式取得，它會回傳這個 slice 目前可能的最大長度。以下是一個範例，它可以把資料新增到 slice 的末端；如果超過 slice 容量的話，也會為你重新配置適合的大小，最後把新的 slice 傳回來。這個範例使用了 *len* 和 *cap* 這兩個函式的特性：nil slice 的長度和容量都是 0。
+
+```go
+func Append(slice, data []byte) []byte {
+    l := len(slice)
+    if l + len(data) > cap(slice) {  // reallocate
+        // Allocate double what's needed, for future growth.
+        newSlice := make([]byte, (l+len(data))*2)
+        // The copy function is predeclared and works for any slice type.
+        copy(newSlice, slice)
+        slice = newSlice
+    }
+    slice = slice[0:l+len(data)]
+    for i, c := range data {
+        slice[l+i] = c
+    }
+    return slice
+}
+```
+
+在這個範例中，我們一定得把新的 slice 傳回去。雖然我們可以 (透過指標) 直接修改 slice 裡的資料，但是在這裡我們要變更的是 slice 本身 (也就是指向 array 的指標、slice 的長度及容量等資料)，而這些資料都是單純的值，所以在函式內只能收到副本。
+
+這個範例實用到我們決定內建一個類似的函式 *append*。我們還需要了解一些其他的知識才能理解 *append* 的設計，所以之後的章節會再次討論 *append*。
+
+### 二維的 slice
+
+Array 和 slice 都是一維的。Go 語言中所謂二維的 array 或是 slice，其實是「裝載 array 的 array」以及「裝載 slice 的 slice」：
+
+```go
+type Transform [3][3]float64  // A 3x3 array, really an array of arrays.
+type LinesOfText [][]byte     // A slice of byte slices.
+```
+
+而因為 slice 的大小是可以動態改變的，這意味著「被裝載在 slice 裡的那些 slice」不需要有相同的長度或容量。這寫法還滿常用的，以上面那個 LinesOfText 作例子：
+
+```go
+text := LinesOfText{
+	[]byte("Now is the time"),
+	[]byte("for all good gophers"),
+	[]byte("to bring some fun to the party."),
+}
+```
+
+有時候這種技巧是必要的，比如掃描一個圖形中每一列裡的每個點。有兩種方法可以達成這件事：你可以把為每一列都配置一個 slice，或是依序把每個點放進一個 array 裡，然後把每一列都切成不同的 slice。兩種方式各有優缺點，端看你的程式適合的是那一種。如果 slice 的長度會變的話，第一種方法可以避免覆蓋到不同列的資料。如果不會變的話，第二種方法可以避免一再配置記憶體造成的效能損耗。以下是這兩種做法的示意，首先是第一種做法：
+
+```go
+// Allocate the top-level slice.
+picture := make([][]uint8, YSize) // One row per unit of y.
+// Loop over the rows, allocating the slice for each row.
+for i := range picture {
+	picture[i] = make([]uint8, XSize)
+}
+```
+
+然後是第二種：
+
+```go
+// Allocate the top-level slice, the same as before.
+picture := make([][]uint8, YSize) // One row per unit of y.
+// Allocate one large slice to hold all the pixels.
+pixels := make([]uint8, XSize*YSize) // Has type []uint8 even though picture is [][]uint8.
+// Loop over the rows, slicing each row from the front of the remaining pixels slice.
+for i := range picture {
+	picture[i], pixels = pixels[:XSize], pixels[XSize:]
+}
+```
+
+### Map
+
+Map 是非常好用的內建型別，它將某種型別的值 (這個值稱為索引) 跟另一種型別的值 (稱為元素，或是直接稱為值) 配成一對。任何可以使用 *==* 比對的型別都可以當做索引，像是整數、浮點數、複數、字串、指標、介面 (如果這個介面可以用 *==* 比對的話)、結構或 array。Slice 不能用來當索引，因為它不支援 *==*。Map 也像 slice 那樣，有個內部的資料結構。如果你把 map 當成參數傳入某個函式中，在函式內修改 map 的元素也會反映到函式外。
+
+你可以用複合結構表達式來初始化一個 map 的元素，語法很簡單：
+
+```go
+var timeZone = map[string]int{
+    "UTC":  0*60*60,
+    "EST": -5*60*60,
+    "CST": -6*60*60,
+    "MST": -7*60*60,
+    "PST": -8*60*60,
+}
+```
+
+賦值和取值的語法跟 array 或 slice 一樣，只是索引的型別不限於整數。
+
+```go
+offset := timeZone["EST"]
+```
+
+如果索引不存在的話，你會取到零值。所以集合 (數學中的 Set) 可以用 `map[某型別]bool` 來實現。當你要把某個元素加進集合的時候，就把那個元素所索引到的值設成 *true*。這樣透過對 map 取值的動作就可以知道某元素是否在集合中：
+
+```go
+attended := map[string]bool{
+    "Ann": true,
+    "Joe": true,
+    ...
+}
+
+if attended[person] { // will be false if person is not in the map
+    fmt.Println(person, "was at the meeting")
+}
+```
+
+有時候分辨我們得確實分辨究竟是索引不存在還是這個值剛好是零值：上方 timeZone 的例子裡，*timezone["UTC"]* 是不存在還是剛好為零呢？我們可以用多重傳回值的方式確定：
+
+```go
+var seconds int
+var ok bool
+seconds, ok = timeZone[tz]
+```
+
+這個慣例很直觀的稱為「逗號 ok」。在這個例子裡，如果 tz 這個索引存在，second 會取到值，ok 會是 true。如果 tz 不存在，second 會是零值，而 ok 會是 false。底下的例子總合了之前我們介紹的東西來實作錯誤回報機制：
+
+```go
+func offset(tz string) int {
+    if seconds, ok := timeZone[tz]; ok {
+        return seconds
+    }
+    log.Println("unknown time zone:", tz)
+    return 0
+}
+```
+
+如果只是要測試索引是否存在，你可以用空白識別子：
+
+```go
+_, present := timeZone[tz]
+```
+
+要刪除某個索引，內建的 *delete* 函式可以做到。它的參數是 map 跟要刪除的索引。索引不存在的狀況下呼叫 *delete* 並不會造成錯誤。
+
+```go
+delete(timeZone, "PDT")  // Now on Standard Time
+```
