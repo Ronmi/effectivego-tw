@@ -147,11 +147,11 @@ var (
 import "bytes"
 ```
 
-之後，就可以用 `bytes.Buffer` 來存取 bytes 套件中定義的 Buffer 結構。如果每個人都可以用相同的名字來存取相同的套件內容，事情就會簡單許多；這代表了套件的名字要取的簡潔有力。慣例上，套件名稱應該是小寫的單字，避免使用底線或大小寫混雜。考慮到大家都會在程式碼中一再輸入各種名稱，像是 *Err* 這樣的命名方式顯然夠簡短，又能讓人一眼看出來它大概會是什麼。套件名稱只是引用時的預設名稱，所以不用擔心會和其他套件撞名，也不需要強制在每個源碼檔中使用相同的名稱。如果真的發生撞名的情況，你完全可以在引用的時候指定另一個名字給它。通常你不會因此搞混，因為引用時的完整套件名稱讓你可以確定自己是引用了什麼。
+之後，就可以用 `bytes.Buffer` 來存取 bytes 套件中定義的 Buffer。如果每個人都可以用相同的名字來存取相同的套件內容，事情就會簡單許多；這代表了套件的名字要取的簡潔有力。慣例上，套件名稱應該是小寫的單字，避免使用底線或大小寫混雜。考慮到大家都會在程式碼中一再輸入各種名稱，像是 *Err* 這樣的命名方式顯然夠簡短，又能讓人一眼看出來它大概會是什麼。套件名稱只是引用時的預設名稱，所以不用擔心會和其他套件撞名，也不需要強制在每個源碼檔中使用相同的名稱。如果真的發生撞名的情況，你完全可以在引用的時候指定另一個名字給它。通常你不會因此搞混，因為引用時的完整套件名稱讓你可以確定自己是引用了什麼。
 
 另一個慣例是我們會用原始碼的目錄作為套件名稱：放在 *src/encoding/base64* 目錄裡的套件會以 *encoding/base64* 這個名稱引入，不是 *encoding_base64* 也不是 *encodingBase64*。
 
-程式可以用套件名稱來參考套件中公開的資源，這樣可以避免混淆。切勿使用 `.` 來引入，這是設計來簡化一些必須在套件外進行的測試，除此之外的用途應當盡量避免。例如在 `bufio` 套件中，具有緩衝區的可讀取串流會命名為 `Reader` 而不是 `BufReader`，因為 `bufio.Reader` 比 `bufio.BufReader` 更簡短也更精確。進一步來說，因為引用的時候會以套件名稱作為前綴，所以 `bufio.Reader` 不會跟 `io.Reader` 混淆。同樣的，用來產生一個新的 `ring.Ring` 實體的函式 (在 Go 語言裡稱為建構子)，通常會命名為 `NewRing`，但考慮到 `ring` 套件裡只有 `Ring` 這個公開的結構，而且套件名稱跟結構名稱又重複，所以取名為 `New` 可以更加簡潔：其他人會使用 `ring.New` 來呼叫它。總之就是利用套件結構來幫助你選擇一個好名字。
+程式可以用套件名稱來參考套件中公開的資源，這樣可以避免混淆。切勿使用 `.` 來引入，這是設計來簡化一些必須在套件外進行的測試，除此之外的用途應當盡量避免。例如在 `bufio` 套件中，具有緩衝區的可讀取串流會命名為 `Reader` 而不是 `BufReader`，因為 `bufio.Reader` 比 `bufio.BufReader` 更簡短也更精確。進一步來說，因為引用的時候會以套件名稱作為前綴，所以 `bufio.Reader` 不會跟 `io.Reader` 混淆。同樣的，用來產生一個新的 `ring.Ring` 實體的函式 (在 Go 語言裡稱為建構子)，通常會命名為 `NewRing`，但考慮到 `ring` 套件裡只有 `Ring` 這個公開的 struct，而且套件名稱跟 struct 名稱又重複，所以取名為 `New` 可以更加簡潔：其他人會使用 `ring.New` 來呼叫它。總之就是利用套件結構來幫助你選擇一個好名字。
 
 另一個好例子是 `once.Do`：寫 `once.Do(setup)` 很清楚，就算你寫的更長 `once.DoOrWaitUntilDone(setup)` 也不會更清楚。很長的名稱不見得讓人容易理解，清楚又精確的說明文件會更有效果。
 
@@ -278,7 +278,7 @@ d, err := f.Stat()
 
 這個特性雖然不太常見，但卻很實用。這會讓你簡單地重用相同的 `err` 變數，這種用法在一長串的 *if-else* 中特別常見。
 
-備註：值得注意的是，在 Go 語言中，函式的參數及返回值是寫在函式大括號的外面，但其實它們跟函式本體屬於同一個有效範圍。
+備註：值得注意的是，在 Go 語言中，函式的參數及回傳值是寫在函式大括號的外面，但其實它們跟函式本體屬於同一個有效範圍。
 
 ### for
 
@@ -443,7 +443,7 @@ func Compare(a, b []byte) int {
 }
 ```
 
-### 判斷型別的 switch
+### 判斷型別的 switch (type switch)
 
 `switch` 也可以用來判斷動態型別，這會用到型別斷言 (type assertion) 的語法及 `type` 關鍵字。如果你宣告一個區域變數給它，那麼這個區域變數的型別會和 `case` 敘述比對的型別相同：
 
@@ -497,11 +497,11 @@ for i := 0; i < len(b); {
 }
 ```
 
-### 返回值的預先命名
+### 回傳值的預先命名
 
-返回值可以預先給予名字，這樣就可以在函式內像一般變數那樣地使用它。它們會被初始化為零值，而遇到沒有加上返回值的 `return` 語句時，就會把它們傳回去。
+回傳值可以預先給予名字，這樣就可以在函式內像一般變數那樣地使用它。它們會被初始化為零值，而遇到沒有加上回傳值的 `return` 語句時，就會把它們傳回去。
 
-這種寫法不是預設的，但很多時候可以讓你的程式碼清楚不少：這等於在寫說明文件。如果我們把剛剛的 `nextInt` 函式的返回值加上命名，你就能一目瞭然地理解哪個 int 是什麼意義：
+這種寫法不是預設的，但很多時候可以讓你的程式碼清楚不少：這等於在寫說明文件。如果我們把剛剛的 `nextInt` 函式的回傳值加上命名，你就能一目瞭然地理解哪個 int 是什麼意義：
 
 ```go
 func nextInt(b []byte, pos int) (value, nextPos int) {
@@ -681,7 +681,7 @@ func NewFile(fd int, name string) *File {
 return &File{fd, name, nil, 0}
 ```
 
-當你使用上面那種複合結構表達式的時候，結構中所有的屬性都必須依順序給予一個值。如果你想省略零值，可以用 **label: value** 這樣的形式來為非零的屬性賦值。
+當你使用上面那種複合結構表達式的時候，struct 中所有的屬性都必須依順序給予一個值。如果你想省略零值，可以用 **label: value** 這樣的形式來為非零的屬性賦值。
 
 ```go
 return &File{fd: fd, name: name}
@@ -852,7 +852,7 @@ for i := range picture {
 
 ### Map
 
-Map 是非常好用的內建型別，它將某種型別的值 (這個值稱為索引) 跟另一種型別的值 (稱為元素，或是直接稱為值) 配成一對。任何可以使用 `==` 比對的型別都可以當做索引，像是整數、浮點數、複數、字串、指標、介面 (如果這個介面可以用 `==` 比對的話)、結構或 array。Slice 不能用來當索引，因為它不支援 `==`。Map 也像 slice 那樣，有個內部的資料結構。如果你把 map 當成參數傳入某個函式中，在函式內修改 map 的元素也會反映到函式外。
+Map 是非常好用的內建型別，它將某種型別的值 (這個值稱為索引) 跟另一種型別的值 (稱為元素，或是直接稱為值) 配成一對。任何可以使用 `==` 比對的型別都可以當做索引，像是整數、浮點數、複數、字串、指標、介面 (如果這個介面可以用 `==` 比對的話)、struct 或 array。Slice 不能用來當索引，因為它不支援 `==`。Map 也像 slice 那樣，有個內部的資料結構。如果你把 map 當成參數傳入某個函式中，在函式內修改 map 的元素也會反映到函式外。
 
 你可以用複合結構表達式來初始化一個 map 的元素，語法很簡單：
 
@@ -948,7 +948,7 @@ fmt.Printf("%d %x; %d %x\n", x, x, int64(x), int64(x))
 18446744073709551615 ffffffffffffffff; -1 -1
 ```
 
-如果你想指定預設格式，可以用 `%v`，輸出的格式會跟你用 `Print` 或 `Println` 函式一樣。同樣地，`%v` 可以接受 **任何** 型別，就算是 array, slice, map 和結構都沒問題。以上一節的時區 map 為例：
+如果你想指定預設格式，可以用 `%v`，輸出的格式會跟你用 `Print` 或 `Println` 函式一樣。同樣地，`%v` 可以接受 **任何** 型別，就算是 array, slice, map 和 struct 都沒問題。以上一節的時區 map 為例：
 
 ```go
 fmt.Printf("%v\n", timeZone)  // or just fmt.Println(timeZone)
@@ -960,7 +960,7 @@ fmt.Printf("%v\n", timeZone)  // or just fmt.Println(timeZone)
 map[CST:-21600 PST:-28800 EST:-18000 UTC:0 MST:-25200]
 ```
 
-輸出 map 的時候，索引順序不是固定的。在輸出結構的時候，你可以用 `%+v` 來一併輸出屬性名稱。而 `%#v` 則是輸出任何型別的完整 Go 語法。
+輸出 map 的時候，索引順序不是固定的。在輸出 struct 的時候，你可以用 `%+v` 來一併輸出屬性名稱。而 `%#v` 則是輸出任何型別的完整 Go 語法。
 
 ```go
 type T struct {
@@ -1013,9 +1013,9 @@ fmt.Printf("%v\n", t)
 7/-2.35/"abc\tdef"
 ```
 
-如果你同時要控制 `T` 和 `*T` 的格式，那 `String` 方法的接收器必須是 `T` 型別；上面的範例用 `*T` 型別的原因是，對結構使用指標是慣例，因為這樣效率比較高。這在 `指標與數值接收器` 的章節會有更深入的討論
+如果你同時要控制 `T` 和 `*T` 的格式，那 `String` 方法的接收器必須是 `T` 型別；上面的範例用 `*T` 型別的原因是，對 struct 使用指標是慣例，因為這樣效率比較高。這在 `指標與數值接收器` 的章節會有更深入的討論
 
-在我們自訂的 `String` 方法中可以呼叫 `Sprintf` 函式，這是因為 `Print` 系列函式都是可重複進入的。只有一種情況要避免：在 `String` 方法裡使用 `Sprintf` 的時候，不慎讓它又自動呼叫了同一個 `String` 方法。如果你要求 `Sprintf` 輸出接收到的結構，就會發生這種事。這是相當常見的錯誤，下面是錯誤示範。
+在我們自訂的 `String` 方法中可以呼叫 `Sprintf` 函式，這是因為 `Print` 系列函式都是可重複進入的。只有一種情況要避免：在 `String` 方法裡使用 `Sprintf` 的時候，不慎讓它又自動呼叫了同一個 `String` 方法。如果你要求 `Sprintf` 輸出接收到的 struct，就會發生這種事。這是相當常見的錯誤，下面是錯誤示範。
 
 ```go
 type MyString string
@@ -1156,3 +1156,305 @@ func (b ByteSize) String() string {
 這樣 `YB` 會輸出 `1.00YB`，而 `ByteSize(1e13)` 則是 `9.09TB`。
 
 這段程式碼不會造成無限遞迴，因為 `%f` 不會呼叫到 `String` - 它接受的是浮點數而非字串。
+
+### 變數
+
+變數也可以初始化，而且可以使用一般的敘述。
+
+```go
+var (
+    home   = os.Getenv("HOME")
+    user   = os.Getenv("USER")
+    gopath = os.Getenv("GOPATH")
+)
+```
+
+### *init* 函式
+
+最後，每個源碼檔都可以定義自己的 `init` 函式，這個函式不接受任何參數。事實上，每個源碼檔可以有複數個 `init` 函式。`init` 是整個初始化環節的最後一步：要等到套件中為變數初始化的敘述都執行完，而且 `import` 進來的套件也初始化完畢之後，才會執行 `init`。
+
+除了進行一些無法簡單地用敘述完成的初始化工作之外，另外一種常見的用法是在 `init` 裡確認套件的狀態，或在必要時進行修復
+
+```go
+func init() {
+    if user == "" {
+        log.Fatal("$USER not set")
+    }
+    if home == "" {
+        home = "/home/" + user
+    }
+    if gopath == "" {
+        gopath = home + "/go"
+    }
+    // gopath may be overridden by --gopath flag on command line.
+    flag.StringVar(&gopath, "gopath", gopath, "override default GOPATH")
+}
+```
+
+## 方法
+
+### 指標與值
+
+回想一下我們先前提過的 `ByteSize`，我們可以為任何型別定義方法 (除了指標型別或是介面型別)；接收器不一定要是 struct。
+
+先前討論 slice 的時候，我們寫了一個 `Append` 函式作為範例。現在我們要試著把它改寫成 slice 的一個方法。首先，我們得要定義一個有命名的型別，這樣才能為它加上方法。至於方法的接收器，當然是我們剛定義的型別了。
+
+```go
+type ByteSlice []byte
+
+func (slice ByteSlice) Append(data []byte) []byte {
+    // Body exactly the same as above
+}
+```
+
+這樣還是得回傳一個新的 slice 回去，我們可以把接收器改成指標，那麼我們就可以在方法裡改變 slice。
+
+```go
+func (p *ByteSlice) Append(data []byte) {
+    slice := *p
+    // Body as above, without the return.
+    *p = slice
+}
+```
+
+這樣就完美了嗎？其實還可以寫得更好。如果我們把方法的定義改成像標準的 `Write` 方法的話：
+
+```go
+func (p *ByteSlice) Write(data []byte) (n int, err error) {
+    slice := *p
+    // Again as above.
+    *p = slice
+    return len(data), nil
+}
+```
+
+那麼 `*ByteSlice` 這個型別就滿足了 `io.Writer` 這個介面的要求 (譯註：就是實作了這個介面的意思), 這下可有趣了。比如說，現在我們可以把 `*ByteSlice` 當成串流來寫入。
+
+```go
+var b ByteSlice
+fmt.Fprintf(&b, "This hour has %d days\n", 7)
+```
+
+注意那個取址符號，因為只有 `*ByteSlice` 型別實作了 `io.Writer`。如果你的接收器是接收值的，那麼實體不論是值型別 (`T`) 還是指標型別 (`*T`)，都可以呼叫這個方法；當接收器是接收指標的時候，只有在指標型別裡才有定義這個方法。
+
+這個規則是因為用指標型別的話就可以修改原本的實體，然而 Go 在傳遞值的時候會產生副本，這代表你在方法中做的變更其實都改到副本上去了。所以我們直接在語言層面上杜絕發生這種錯誤的可能。對於接收指標的方法，如果呼叫的時候需要而且可以取址，那麼 Go 會幫你自動加上取址符號。比如上面的例子，我們可以直接寫 `b.Write`，而 Go 會幫我們把它改成 `(&b).Write`。
+
+題外話，上面那個改寫成 `Write` 的主意就是我們在實作 `bytes.Buffer` 時的中心思想。
+
+## 介面以及其他型別
+
+### 介面
+
+在 Go 語言中，介面是用來指定物件的行為：如果某個物件可以做「這件事」，那麼它就可以用來當成是「這種東西」。先前我們已經看到好幾個簡單的例子：我們可以透過 `String` 方法來實作自訂的輸出，而 `Fprintf` 可以輸出到任何有實作 `Write` 方法的物件裡。
+
+一個型別可以實作好幾個介面。舉例來說，一個 collection 可以藉由實作 `sort.Interface` 這個介面來讓 `sort` 套件為它排序，同時也可以提供一個自訂的輸出格式：
+
+```go
+type Sequence []int
+
+// Methods required by sort.Interface.
+func (s Sequence) Len() int {
+    return len(s)
+}
+func (s Sequence) Less(i, j int) bool {
+    return s[i] < s[j]
+}
+func (s Sequence) Swap(i, j int) {
+    s[i], s[j] = s[j], s[i]
+}
+
+// Method for printing - sorts the elements before printing.
+func (s Sequence) String() string {
+    sort.Sort(s)
+    str := "["
+    for i, elem := range s {
+        if i > 0 {
+            str += " "
+        }
+        str += fmt.Sprint(elem)
+    }
+    return str + "]"
+}
+```
+
+### 型別轉換
+
+上面的 `String` 方法其實是把 `Sprint` 函式對 slice 做的事重寫了一遍。我們可以把 `Sequence` 轉成 `[]int` 型別來享受 `fmt` 套件的勞動成果。
+
+```go
+func (s Sequence) String() string {
+    sort.Sort(s)
+    return fmt.Sprint([]int(s))
+}
+```
+
+這也是靠型別轉換來避免在 `String` 方法中產生無限遞迴的好例子。因為 `Sequence` 跟 `[]int` 本質上是同樣的型別，所以它們彼此之間可以安全轉換。型別的轉換不會產生新的實體，只是暫時假裝它是另一種相容的型別而已。此外也有會產生新的實體的型別轉換，比如整數和浮點數之間的轉換。
+
+靠型別轉換來存取不同的方法，這是 Go 的慣例。比如我們可以用 `sort.IntSlice` 把上面的例子整個簡化成
+
+```go
+type Sequence []int
+
+// Method for printing - sorts the elements before printing
+func (s Sequence) String() string {
+    sort.IntSlice(s).Sort()
+    return fmt.Sprint([]int(s))
+}
+```
+
+原本我們是在 `Sequence` 實作特定介面來達成排序的需求，現在是利用型別轉換來取用在 `sort.IntSlice` 中定義的排序方法。這樣的技巧在實際環境中比較少用，但是非常有效率。
+
+### 介面的轉換以及型別斷言
+
+早先提到的 type switch 也是一種型別轉換：針對某個介面的實體，視它符合哪個 `case` 所指定的型別，然後把它轉換成那個型別。以下是一個簡化的例子，示範了 `fmt.Prinf` 是如何用 type switch 把值變成字串。如果值本來就是字串，那就直接輸出不用轉換；如果它有實作 `String` 方法，那就用 `String` 方法回傳的結果。
+
+```go
+type Stringer interface {
+    String() string
+}
+
+var value interface{} // Value provided by caller.
+switch str := value.(type) {
+case string:
+    return str
+case Stringer:
+    return str.String()
+}
+```
+
+第一個 `case` 配對到實值，第二個則是把一個介面轉成另一個。像這樣子混用型別是安全的。
+
+如果我們只想要特定一種型別呢？比如我很確定這個值一定會是字串，而我想直接取得它的值呢？只有一個 `case` 的 type switch 當然是個解法，但型別斷言也行。型別斷言會從一個介面中擷取出特定型別的值來。型別斷言的語法和 type switch 很像，只是把 `type` 關鍵字換成了型別：
+
+```go
+value.(typeName)
+```
+
+結果會是一個新的值，型別是 `typeName`。這個 `typeName` 必須是這個介面的實體本身的型別，或是另一個可以安全轉換的介面。如果我們知道 `value` 真的會是字串的話：
+
+```go
+str := value.(string)
+```
+
+但如果不是的話，這會造成執行時期的錯誤。你可以用「逗號 ok」這個慣例來確認。
+
+```go
+str, ok := value.(string)
+if ok {
+    fmt.Printf("string value is: %q\n", str)
+} else {
+    fmt.Printf("value is not a string\n")
+}
+```
+
+如果型別斷言失敗，`str` 仍然會是字串型別，但值會是零值，也就是空字串。
+
+作為示意，以下是用 *if-else* 實作的 type switch
+
+```go
+if str, ok := value.(string); ok {
+    return str
+} else if str, ok := value.(Stringer); ok {
+    return str.String()
+}
+```
+
+### 一般性
+
+如果某個型別完全只是為了實作特定介面而存在的，那我們完全不必讓它可以公開存取，只要讓介面可以公開存取就夠了。這樣可以明白表示重要的是它的行為，而不是實作它的那個東西；這樣其他具有不同特性的實作方式也能保持相同的行為。同時這也讓你避過了一份說明要寫兩次的痛苦。
+
+在這種情況下，建構子應當要回傳介面。比如在 hash 相關的套件中， `crc32.NewIEEE` 與 `adler32.New` 都是回傳 `hash.Hash32` 介面。所以如果你的程式會用到 crc32，而事後想要換成 adler32，只要把建構子換掉就好了，其他部份的程式碼都不會動到。
+
+這種模式讓串流式的加密法得以和區塊加密器分離開來。在 `crypto/cipher` 套件中的 `Block` 介面定義了區塊加密器的行為：把一塊資料加密。只要再配合 *bufio* 套件，實作這個介面的加密器就可以用來建構串流式的加密器 (同時也是 `Stream` 介面)，而不用深入研究每個區塊加密器的實作方式。
+
+`crypto/cipher` 介面看起來大致像這樣
+
+```go
+type Block interface {
+    BlockSize() int
+    Encrypt(src, dst []byte)
+    Decrypt(src, dst []byte)
+}
+
+type Stream interface {
+    XORKeyStream(dst, src []byte)
+}
+```
+
+而以下是 counter mode 的串流的定義，用來把區塊加密轉成串流加密。你可以注意到區塊加密的細節被隱藏起來了
+
+```go
+// NewCTR returns a Stream that encrypts/decrypts using the given Block in
+// counter mode. The length of iv must be the same as the Block's block size.
+func NewCTR(block Block, iv []byte) Stream
+```
+
+這個函式不止可以用在特定某種區塊加密法，而是可以用任意區塊加密器建立不同的串流加密器。因為它回傳的是介面，所以只要換個建構子便能把加密方式換掉。
+
+### 介面與方法
+
+既然幾乎所有的東西都可以加上方法，那就表示幾乎所有東西都可以實作介面。一個很明顯的例子就是 `http` 套件的 `Handler` 介面。任何實做這個介面的東西都可能用來處理 HTTP 請求。
+
+```go
+type Handler interface {
+    ServeHTTP(ResponseWriter, *Request)
+}
+```
+
+`ResponseWriter` 本身就是個介面，提供一些方法讓你可以回應 HTTP 請求；這包括了標準的 `Write` 方法，所以它也可以用在任何需要 `io.Writer` 的地方。而 `Request` 則是把 HTTP 請求轉成一個方便你存取的 struct。
+
+為了便於說明，讓我們把 HTTP 簡化成只有 GET 沒有 POST，這樣的簡化不會影響我們設定 HTTP 請求的處理程式。以下是個很直觀但是也很完整的處理程式，用來記錄有多少人次來看過這一頁。
+
+```go
+// Simple counter server.
+type Counter struct {
+    n int
+}
+
+func (ctr *Counter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+    ctr.n++
+    fmt.Fprintf(w, "counter = %d\n", ctr.n)
+}
+```
+
+(思考一下，為什麼 `Fprintf` 可以變成 HTTP 回應呢？) 做為參考，這是把這個處理程式綁定在某個網址的方法。
+
+```go
+import "net/http"
+...
+ctr := new(Counter)
+http.Handle("/counter", ctr)
+```
+
+但為什麼要用 struct 呢？用整數就夠了！ (接收器要是指標型別，這樣才不會只是改到副本)
+
+```go
+// Simpler counter server.
+type Counter int
+
+func (ctr *Counter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+    *ctr++
+    fmt.Fprintf(w, "counter = %d\n", *ctr)
+}
+```
+
+那如果你的程式有一些內部狀態，要在訪客拜訪這個頁面的時候處理呢？那就用 channel 吧
+
+```go
+// A channel that sends a notification on each visit.
+// (Probably want the channel to be buffered.)
+type Chan chan *http.Request
+
+func (ch Chan) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+    ch <- req
+    fmt.Fprint(w, "notification sent")
+}
+```
+
+最後，假設我們要在 `/args` 這個頁面裡顯示我們用來啟動伺服器的命令列參數。要輸出命令列參數很簡單：
+
+```go
+func ArgServer() {
+    fmt.Println(os.Args)
+}
+```
