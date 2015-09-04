@@ -1711,3 +1711,293 @@ func (job *Job) Logf(format string, args ...interface{}) {
 嵌入機制有造成命名衝突的可能，但解決的規則也很簡單。首先，外層的屬性和方法會蓋掉內層的屬性和方法。如果 `log.Logger` 有一個屬性也叫 `Command`，那它就只能透過 `job.Logger.Command` 的方式存取。
 
 其次，如果在同一層出現命名衝突，通常這會是個錯誤。如果 `Job` 型別裡已經有 `Logger` 屬性的情況下嵌了 `log.Logger` 進去，這八成是哪裡出了問題。然而，如果這衝突的命名只出現在定義的時候，外部程式不會存取到的話就沒問題。這是為了保護內層的型別不會被外部修改；顯然在內嵌型別中，不會被外部使用的那些資料就不需要這種保護。
+
+## 並行運算
+
+### 以溝通來共享
+
+並行運算是深奧的問題，這裡只討論一些 Go 語言中相關的重點。
+
+在許多環境中，要如何實作正確的資料共享方式是困難的，這讓並行運算也跟著困難了起來。Go 語言推行另一種模式來解決這個問題：把需要共享的資料透過 channel 來互相傳遞，而不是讓每個程序自行存取它。這樣一次只會有一個 goroutine 可以存取它，那麼在設計層面上就杜絕了資料存取競爭的問題。我們想了一句標語來益你用這種方式思考：
+
+    不要透過共享的資料來互相溝通，要用互相溝通的方式來共享資料
+
+這種方式可以擴及非常多層面，比如參考計數模式可以用「把一個同步鎖加在整數上」的方式處理。不過讓我們從上而下來看，用 channel 做存取控制可以讓你寫出比較簡單明瞭的程式。
+
+要理解為什麼，我們先假設現在有一個程式，跑在一台單核的電腦上。它絕對不會有同步問題，你知道，我知道，獨眼龍也知道。然後我們把這個程式再跑一份起來，顯然也不會有同步問題。現在，讓這兩份程式互相溝通。如果它們是用彼此溝通的那個管道來做同步控制，那它們還是不會有同步問題。Unix 的管道正是這種模式的完美詮釋。雖然 Go 對於並行運算的處理是從 Hoare 的 Communicating Sequential Processes (CSP) 發想的，但你也可以把它想成是比較一般化、不會有型別問題的 Unix 管道。
+
+### Goroutine
+
+之所以會取這個名字，是因為現有的各種類似名稱：thread、副程序、程序…等等，都不能精準描述它。Goroutine 的模型很簡單：它是一個函式，和其他 goroutine 在同一個位址空間中做並行運算。它很小，只需要比配置堆疊再多一點的資源。它的堆疊一開始也會很小，所以它真的很小。但當需要的時候，它也會靠在 heap 中配置空間來增長。
+
+所有的 Goroutine 會自動分配到數個作業系統層級的 thread 中執行，所以某個 goroutine 如果因為等待 I/O 動作而需要暫停的時候，其他 goroutine 還是會繼續執行。它的設計可以隱藏掉很多 thread 控制的細節。
+
+當你呼叫函式或是方法的時候，前面加上 `go` 關鍵字，就可以把它扔進一個新的 goroutine 裡執行。函式結束的時候，goroutine 也會悄悄地跟著結束，效果很像在 Unix 的 shell 裡用 `&` 把程式丟到背景執行。
+
+```go
+go list.Sort()  // run list.Sort concurrently; don't wait for it.
+```
+
+函式表達式也是很常配合 `go` 使用的
+
+```go
+func Announce(message string, delay time.Duration) {
+    go func() {
+        time.Sleep(delay)
+        fmt.Println(message)
+    }()  // Note the parentheses - must call the function.
+}
+```
+
+Go 語言的函式表達式就是 closure：被函式參考到的變數，在函式結束前是不會釋放的。
+
+這些範例沒什麼實用價值，因為你不知道它何時才會結束。要做到這點，就得靠 channel 了。
+
+### Channel
+
+像 `map` 一樣，channel 要用 `make` 配置，結果會是一個指標，指向某種內部的資料結構。如果你加上一個整數當參數，它會是 channel 的緩衝區的大小。
+
+```go
+ci := make(chan int)            // unbuffered channel of integers
+cj := make(chan int, 0)         // unbuffered channel of integers
+cs := make(chan *os.File, 100)  // buffered channel of pointers to Files
+```
+
+若是用無緩衝區的 channel 來溝通 - 就是用它來同步交換資料 - 可以保證兩端的 goroutine 的狀態都會是確定的。
+
+我們有很多使用 channel 的慣例。首先可以從這個開始。上一節我們把一個排序的動作扔到了背景，我們可以用 channel 來讓外部程式等待排序完畢。
+
+```go
+c := make(chan int)  // Allocate a channel.
+// Start the sort in a goroutine; when it completes, signal on the channel.
+go func() {
+    list.Sort()
+    c <- 1  // Send a signal; value does not matter.
+}()
+doSomethingForAWhile()
+<-c   // Wait for sort to finish; discard sent value.
+```
+
+接收端會暫停到有資料可以接收為止。如果 channel 沒有緩衝區的話，發送端也會暫停到有人來接收為止。如果有緩衝區的話，那就會暫停到資料放進緩衝區為止：如果緩衝區滿了，就要等到有人來接收資料，讓緩衝區騰出空間來，資料才能放進緩衝區。
+
+有緩衝區的 channel 有點像是同步旗標，比如可以用來限制流量。下個範例中，連入的請求會傳給 `handle`，而它會傳送一個值給 channel，處理請求，然後再從 channel 中讀取一個值以表示「我處理好了，可以換下一位了」。channel 緩衝區的大小決定了同時可以處理幾個請求。
+
+```go
+var sem = make(chan int, MaxOutstanding)
+
+func handle(r *Request) {
+    sem <- 1    // Wait for active queue to drain.
+    process(r)  // May take a long time.
+    <-sem       // Done; enable next request to run.
+}
+
+func Serve(queue chan *Request) {
+    for {
+        req := <-queue
+        go handle(req)  // Don't wait for handle to finish.
+    }
+}
+```
+
+一旦有 `MaxOutStanding` 個請求同時在處理中，後來連入的請求就會在傳送資料給 channel 的時候被強制暫停，直到有前面的請求處理完為止。
+
+但這個設計有個問題：`Serve` 會為每個連入的請求建立一個 goroutine，就算現在連線滿了也一樣。所以如果連入的速度太快，那 goroutine 就會越來越多，直到系統資源耗盡當機。我們可以改寫 `Serve` 來管制 goroutine 的產生。以下的範例很直觀，但我們留了一個 bug 之後再修：
+
+```go
+func Serve(queue chan *Request) {
+    for req := range queue {
+        sem <- 1
+        go func() {
+            process(req) // Buggy; see explanation below.
+            <-sem
+        }()
+    }
+}
+```
+
+在 *for* 迴圈上定義的變數是會重覆使用的，這讓上一個範例產生了一個 bug：所有的 goroutine 共享了同一個 `req` 變數。這顯然不是我們想的，所以我們得確定每個 goroutine 取得的 `req` 都是獨一無二的。其中一個方式是把它用參數傳進去。
+
+```go
+func Serve(queue chan *Request) {
+    for req := range queue {
+        sem <- 1
+        go func(req *Request) {
+            process(req)
+            <-sem
+        }(req)
+    }
+}
+```
+
+你可以上下比對一下，幫助你理解 closure 是怎麼運作的。另一種方式是乾脆定義一個同名的新變數給它：
+
+```go
+func Serve(queue chan *Request) {
+    for req := range queue {
+        req := req // Create new instance of req for the goroutine.
+        sem <- 1
+        go func() {
+            process(req)
+            <-sem
+        }()
+    }
+}
+```
+
+也許 `req := req` 看起來很詭異，但這在 Go 是合乎慣例的。你配置了一個全新的區域變數，使用跟外部變數相同的名稱，避開了迴圈變數的影響，也讓每個 goroutine 都有自己獨立的 `req`。
+
+回到原本伺服器的例子，另一種資源管理的方式是一開始就啟動固定數量的 `handle`，而每一個 `handle` 都會從 channel 裡讀取連入的連線。而 `Serve` 也會從另一個 channel 讀取是否該結束，所以啟動所有的 `handle` 之後它就停在那等下班了。
+
+```go
+func handle(queue chan *Request) {
+    for r := range queue {
+        process(r)
+    }
+}
+
+func Serve(clientRequests chan *Request, quit chan bool) {
+    // Start handlers
+    for i := 0; i < MaxOutstanding; i++ {
+        go handle(clientRequests)
+    }
+    <-quit  // Wait to be told to exit.
+}
+```
+
+### 傳送 channel 的 channel
+
+Go 語言中一個極重要的特性是：channel 是 first-class value，你可以任意的配置、傳遞它。常見的用法是用來實作安全的平行處理環境。
+
+在上一節的範例中，`handle` 是一個理想狀態的處理程式，但我們沒有定義它是處理什麼型別的資料。如果它處理的型別裡，包含了一個 channel 可以用來回傳處理結果，那麼每個客戶端都可以提供它們所需要的回傳方式。
+
+```go
+type Request struct {
+    args        []int
+    f           func([]int) int
+    resultChan  chan int
+}
+```
+
+客戶端會提供一個函式、函式所需的參數，以及一個用來回傳結果的 channel。
+
+```go
+func sum(a []int) (s int) {
+    for _, v := range a {
+        s += v
+    }
+    return
+}
+
+request := &Request{[]int{3, 4, 5}, sum, make(chan int)}
+// Send request
+clientRequests <- request
+// Wait for response.
+fmt.Printf("answer: %d\n", <-request.resultChan)
+```
+
+在伺服器端，我們只需要修改 `handle` 函式就好
+
+```go
+func handle(queue chan *Request) {
+    for req := range queue {
+        req.resultChan <- req.f(req.args)
+    }
+}
+```
+
+雖然這個範例還需要很多修改才能符合現實狀況，但這段程式已經是一個提供流量控管、平行處理的非阻斷式 RPC 系統，而且裡面沒有半個同步鎖。
+
+### 平行處理
+
+另外一種應用是我們可以在多個 CPU 核心間進行平行處理。如果計算可以分成好幾個彼此獨立的部份，那就可以同時進行，只要用一個 channel 來確認哪個部份已經執行完畢就好。
+
+假設我們要做一些很耗資源的向量運算，每個向量的運算彼此間互不關聯。像是下面這個理想狀態的例子
+
+```go
+type Vector []float64
+
+// Apply the operation to v[i], v[i+1] ... up to v[n-1].
+func (v Vector) DoSome(i, n int, u Vector, c chan int) {
+    for ; i < n; i++ {
+        v[i] += u.Op(v[i])
+    }
+    c <- 1    // signal that this piece is done
+}
+```
+
+我們把每一個運算用迴圈一一啟動，每一個 CPU 核心處理一個。它們完成的順序並不固定，不過那不要緊，我們只要透過讀取 channel 來確定運算是否通通完成就好。
+
+```go
+const numCPU = 4 // number of CPU cores
+
+func (v Vector) DoAll(u Vector) {
+    c := make(chan int, numCPU)  // Buffering optional but sensible.
+    for i := 0; i < numCPU; i++ {
+        go v.DoSome(i*len(v)/numCPU, (i+1)*len(v)/numCPU, u, c)
+    }
+    // Drain the channel.
+    for i := 0; i < numCPU; i++ {
+        <-c    // wait for one task to complete
+    }
+    // All done.
+}
+```
+
+而 CPU 數量可以透過 `runtime.NumCPU` 取得
+
+```go
+var numCPU = runtime.NumCPU()
+```
+
+另外還有一個函式 `runtime.GOMAXPROCS`，它會回傳使用者定義的，一個 Go 程式最多可佔用的 CPU 核心數，預設值是 `runtime.NumCPU` 的結果。你可以透過設定特定的環境變數，或是傳個正整數給它來做調整。如果我們決定使用使用者定義的值
+
+```go
+var numCPU = runtime.GOMAXPROCS(0)
+```
+
+要注意，別把並行運算 (把程式結構調整成數個彼此獨立執行的組件) 和平行運算 (把一個運算分拆成幾個彼此獨立的小型運算，交給不同的 CPU 核心同時進行) 給搞混了。雖然 Go 語言適合並行運算的特性會讓你比較容易把問題用平行運算處理，但 Go 是適合並行運算的語言，不完全適合平行運算，所以某些平行運算的模式不適合用 Go。你可以看看[這個部落格裡的這份演講](http://blog.golang.org/2013/01/concurrency-is-not-parallelism.html)來深入了解兩者之間的差異。
+
+### Leaky buffer
+
+這些適合並行運算的工具還能讓非並行的運算變的更簡單明瞭。以下是個從 RPC 套件中抽象化之後的範例。客戶端不停地行某些來源取得資料，也許是網路。為了避免重複配置、釋放緩衝區，所以我們準備了一個閒置區，它是個 channel，裡面存放閒置的緩衝區。如果 channel 是空的，那我們就配置一個新的緩衝區。把資料放進緩衝區之後，我們就把整個緩衝區丟給伺服器做運算。
+
+```go
+var freeList = make(chan *Buffer, 100)
+var serverChan = make(chan *Buffer)
+
+func client() {
+    for {
+        var b *Buffer
+        // Grab a buffer if available; allocate if not.
+        select {
+        case b = <-freeList:
+            // Got one; nothing more to do.
+        default:
+            // None free, so allocate a new one.
+            b = new(Buffer)
+        }
+        load(b)              // Read next message from the net.
+        serverChan <- b      // Send to server.
+    }
+}
+```
+
+伺服器則是不停地從客戶端接收緩衝區，處理裡面的資料，然後把用完的緩衝區放到閒置區。
+
+```go
+func server() {
+    for {
+        b := <-serverChan    // Wait for work.
+        process(b)
+        // Reuse buffer if there's room.
+        select {
+        case freeList <- b:
+            // Buffer on free list; nothing more to do.
+        default:
+            // Free list full, just carry on.
+        }
+    }
+}
+```
+
+客戶端從閒置區取得現成的緩衝區，拿不到的話就自己產生一個新的。伺服器把用完的緩衝區放回閒置區，如果閒置區滿了，就直接把這多餘的緩衝區丟棄，垃圾處理機制會負責釋放它。(如果`select` 裡所有的 `case` 部份都不成立，就會執行 `default` 那部份，所以 `select` 不會暫停) 這樣的實作只用短短幾行就作了一個 leaky buffer 式的閒置列表，靠的是有緩衝區的 channel 和垃圾處理機制。
