@@ -2001,3 +2001,59 @@ func server() {
 ```
 
 客戶端從閒置區取得現成的緩衝區，拿不到的話就自己產生一個新的。伺服器把用完的緩衝區放回閒置區，如果閒置區滿了，就直接把這多餘的緩衝區丟棄，垃圾處理機制會負責釋放它。(如果`select` 裡所有的 `case` 部份都不成立，就會執行 `default` 那部份，所以 `select` 不會暫停) 這樣的實作只用短短幾行就作了一個 leaky buffer 式的閒置列表，靠的是有緩衝區的 channel 和垃圾處理機制。
+
+## 錯誤處理
+
+程式庫常常會回傳某種錯誤通知給呼叫者。如同前面提到的，多重回傳值讓你可以簡單的同時把正常的回傳值和錯誤狀況同時傳回去，你也應該使用這個方式回傳錯誤碼。舉例來說，`os.Open` 發生錯誤的時候不只是回傳 `nil`，它還同時會回傳一個錯誤碼。
+
+慣例上，錯誤碼會是內建的 `error` 型別：
+
+```go
+type error interface {
+    Error() string
+}
+```
+
+撰寫程式庫的人可以實作這個介面，並提供更完整、豐富的內容。如同前面所說，在回傳正常的值之外，`os.Open` 還會回傳一個錯誤碼。如果一切正常，那錯誤碼就會是 `nil`，而出問題的時候會是 `os.PathError`。
+
+```go
+// PathError records an error and the operation and
+// file path that caused it.
+type PathError struct {
+    Op string    // "open", "unlink", etc.
+    Path string  // The associated file.
+    Err error    // Returned by the system call.
+}
+
+func (e *PathError) Error() string {
+    return e.Op + " " + e.Path + ": " + e.Err.Error()
+}
+```
+
+`PathError` 的 `Error` 方法會產生像這樣的字串
+
+```
+open /etc/passwx: no such file or directory
+```
+
+像這樣在錯誤訊息中囊括了檔名、動作和實際獨發的系統錯誤，就算是顯示在八竿子打不著邊的遠處，也能看出來是出了什麼問題，因為它比單純顯示「找不到檔案」要更詳細。
+
+如果可以的話，錯誤訊息應該要能指明來源，比如前面加上套件名稱或是動作。比如在 `image` 套件中，解碼錯誤的訊息是 "image: unknown format"。
+
+如果要針對不同的錯誤做處理的話，你可以用 type switch 或是型別斷言來取得詳細資料。比如說想要取出 `PathError` 裡的 `Err` 來做錯誤回復
+
+```go
+for try := 0; try < 2; try++ {
+    file, err = os.Create(filename)
+    if err == nil {
+        return
+    }
+    if e, ok := err.(*os.PathError); ok && e.Err == syscall.ENOSPC {
+        deleteTempFiles()  // Recover some space.
+        continue
+    }
+    return
+}
+```
+
+在第二個 `if` 這裡我們用了型別斷言。如果型別不對，那 `ok` 會是 `false`，`e` 也會是 `nil`。如果型別正確，`ok` 會是 `true`，所以 錯誤碼和 `e` 都會是 `*os.PathError` 型別，那麼我們就可以取出並驗證相關資訊了。
