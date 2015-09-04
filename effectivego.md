@@ -2057,3 +2057,37 @@ for try := 0; try < 2; try++ {
 ```
 
 在第二個 `if` 這裡我們用了型別斷言。如果型別不對，那 `ok` 會是 `false`，`e` 也會是 `nil`。如果型別正確，`ok` 會是 `true`，所以 錯誤碼和 `e` 都會是 `*os.PathError` 型別，那麼我們就可以取出並驗證相關資訊了。
+
+### Panic
+
+通常我們會透過回傳錯誤值來回報錯誤，像是 `Read` 就會回傳它讀取了幾 byte，以及錯誤碼。但如果錯誤是無法回復的呢？有時候程式會發生無論如何都要中斷的錯誤。
+
+因此，Go 語言中內建了 `panic` 函式，效果是發出一個足以中斷程式的執行時期錯誤 (注意下一節)。這個函式接受一個任意型別的參數，通常是字串，輸出之後中斷程式。這也可以指出發生了某種不可能的情況，比如跳出了無窮迴圈。
+
+```go
+// A toy implementation of cube root using Newton's method.
+func CubeRoot(x float64) float64 {
+    z := x/3   // Arbitrary initial value
+    for i := 0; i < 1e6; i++ {
+        prevz := z
+        z -= (z*z*z-x) / (3*z*z)
+        if veryClose(z, prevz) {
+            return z
+        }
+    }
+    // A million iterations has not converged; something is wrong.
+    panic(fmt.Sprintf("CubeRoot(%g) did not converge", x))
+}
+```
+
+這只是範例，但程式庫應該避免使用 `panic`。如果問題有任何方式可以解決或忽略，中斷程式肯定就是最差的做法。不過也是有反例：如果程式庫在初始化的時候發生錯誤，無法成功初始化，那使用 panic 中斷程式通常是合理的。
+
+```go
+var user = os.Getenv("USER")
+
+func init() {
+    if user == "" {
+        panic("no value for $USER")
+    }
+}
+```
