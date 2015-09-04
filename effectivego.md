@@ -1458,3 +1458,256 @@ func ArgServer() {
     fmt.Println(os.Args)
 }
 ```
+
+但是要怎樣讓它變成 HTTP 伺服器呢？我們當然可以把 `ArgServer` 變成某種自訂型別的方法，這樣只要忽略那個型別的值就好了。但還有更優雅的解決方式。既然除了指標和介面之外的東西都可以加上方法，那我們當然也可以為函式加上方法。在 `http` 套件中有這樣的一段程式碼：
+
+```go
+// The HandlerFunc type is an adapter to allow the use of
+// ordinary functions as HTTP handlers.  If f is a function
+// with the appropriate signature, HandlerFunc(f) is a
+// Handler object that calls f.
+type HandlerFunc func(ResponseWriter, *Request)
+
+// ServeHTTP calls f(c, req).
+func (f HandlerFunc) ServeHTTP(w ResponseWriter, req *Request) {
+    f(w, req)
+}
+```
+
+`HandlerFunc` 是一個擁有 `ServeHTTP` 方法的型別，所以這個型別當然可以處理 HTTP 請求。注意看實作：接收器接收的是一個函式 `f`，然後去呼叫這個函式。看起來可能有點奇怪，但其實這跟上面那個接收 channel的例子沒有什麼不同。
+
+所以要把 `ArgServer` 變成 HTTP 伺服器，首先我們要把它的定義改成正確的樣式
+
+```go
+// Argument server.
+func ArgServer(w http.ResponseWriter, req *http.Request) {
+    fmt.Fprintln(w, os.Args)
+}
+```
+
+現在 `ArgServer` 的定義跟 `HandlerFunc` 的定義是相容的了，這表示可以把它強制轉型成 `HandlerFunc` 型別好存取 `ServeHTTP` 方法，就像我們之前把 `Sequence` 轉成 `IntSlice` 一樣。
+
+```go
+http.Handle("/args", http.HandlerFunc(ArgServer))
+```
+
+當有人拜訪這個網址的時候，處理這個網址的處理程式會是 `ArgServer`，而它的型別會是 `HandlerFunc`。因為型別是 `HandlerFunc`，所以 HTTP 伺服器會執行它的 `ServeHTTP` 方法，而在 `ServeHTTP` 裡又會呼叫 `ArgServer` 本身，所以命令列參數就輸出到 HTTP 回應裡了。
+
+在這節裡，我們用了 struct、整數、channel 和函式來當 HTTP 伺服器。之所以能這樣用，是因為介面只是定義一組方法，而方法幾乎可以定義在任何東西上。
+
+## 空白識別子
+
+我們之前已經在 *for range* 迴圈和 *map* 的章節提過這個名詞好幾次。你可以指定任意型別的任何值給空白識別子，這個值會被忽略。這有點像是 unix 的 */dev/null*：只能寫入，通常是用在你需要有一個變數，但它的值一點都不重要的時候。之前我們有看過幾次這種用法了。
+
+### 空白識別子與多重指定
+
+*for range* 迴圈那節的例子，就是空白識別子在多重指定裡的應用。
+
+如果在等號的左邊需要好幾個變數，但其中一個不會被用到，你就可以用空白識別子取代它，這樣可以避免配置多餘的變數，也可以清楚顯示這個值會被忽略。比如我們呼叫一個會回值某值和錯誤碼的函式，但我們只需要錯誤碼：
+
+```go
+if _, err := os.Stat(path); os.IsNotExist(err) {
+	fmt.Printf("%s does not exist\n", path)
+}
+```
+
+有時候你會看到有人用空白識別子忽略錯誤碼，這是非常糟的錯誤示範。務必要檢察錯誤碼，每個錯誤碼的存在都是有理由的。
+
+```go
+// Bad! This code will crash if path does not exist.
+fi, _ := os.Stat(path)
+if fi.IsDir() {
+    fmt.Printf("%s is a directory\n", path)
+}
+```
+
+### 沒有用到的 import 和變數
+
+如宗定義了一個變數，或是引入了一個套件，卻沒有真的用到它們，那麼就會發生編譯錯誤。引入用不到的套件會讓程式變肥、編譯變慢，而定義用不到的變數至少會浪廢記憶體，也會拖慢效能，甚至可能是某種 bug 的跡象。當程式正在密集開發的時候，這種情況會比較常見。為了要讓編譯成功，你得一直來來回回的加上、刪除相關的引用和定義，實在很擾人。空白識別子提供了一個暫時的解決方案。
+
+以下這個寫到一半的程式引用了兩個目前沒有用到的套件 `fmt` 和 `os`，以及一個沒有用到的變數 `fd`，所以編譯不會過，但如果有什麼辦法可以知道程式現在有沒有錯誤的話當然會更好。
+
+```go
+package main
+
+import (
+    "fmt"
+    "io"
+    "log"
+    "os"
+)
+
+func main() {
+    fd, err := os.Open("test.go")
+    if err != nil {
+        log.Fatal(err)
+    }
+    // TODO: use fd.
+}
+```
+
+如果想暫時跳過這個麻煩，你把套件中的任意識別子指定給空白識別子。同樣地，你也可以透過把變數指定給空白識別子的方式來避開變數使用的問題。以下的程式就可以成功編譯了：
+
+```go
+package main
+
+import (
+    "fmt"
+    "io"
+    "log"
+    "os"
+)
+
+var _ = fmt.Printf // For debugging; delete when done.
+var _ io.Reader    // For debugging; delete when done.
+
+func main() {
+    fd, err := os.Open("test.go")
+    if err != nil {
+        log.Fatal(err)
+    }
+    // TODO: use fd.
+    _ = fd
+}
+```
+
+慣例上，用來避開引用錯誤的這兩行宣告，要放在引用的正下方，也要加上註解。這是為了未來可以容易發現程式中有這樣的情況。
+
+### 為了副作用而引用
+
+像上一個例子中 `fmt` 和 `os` 的引用，要嘛補上使用它們的程式碼，要嘛就該刪除掉，空白識別子只是標識出我們還有相關工作要作。不過有時我們引用套件只是為了它的副作用，套件本身我們不會用到。舉例來說，`net/http/pprof` 套件在它的 `init` 函式中會註冊一個 HTTP 處理程式，用來提供相關的調校資訊。它有提供 API，不同通常你並不會用到，只會從 web 頁面上存取它。如果只需要一個套件的副作用，你可以用空白識別子作它的別名
+
+```go
+import _ "net/http/pprof"
+```
+
+這樣子你就沒有辦法在程式中使用這個套件中任何的識別子：在這個源碼檔中，這個套件沒有名字。這表明了我們是為了它的副作用才引用的。如果你給了它名字而又沒有用到它，那就會有編譯錯誤。
+
+### 型別斷言的檢查
+
+如同我們在 *介面* 章節中提到的，型別不需要定義它實作了些什麼介面，只要實作那個介面定義的所有方法就夠了。實作中，大部份的介面型別轉換都是靜態的，也就是在編譯時完成的。比如你傳一個 `*os.File` 型別的變數給需要 `io.Reader` 的函式當參數，除非 `*os.File` 有實作 `io.Reader` 定義的所有方法，否則編譯的時候就會出錯了。
+
+也是有些型別檢查是執行時才做的，像 `encoding/json` 套件中的 `Marshal` 函式就是一個例子。當 JSON 編碼器收到一個有實作編碼介面的值，編碼器就會呼叫介面中定義的編碼方法；否則會用預設的方式來編碼。編碼器會在執行時才用型別斷言來確認型別：
+
+```go
+m, ok := val.(json.Marshaler)
+```
+
+像是在檢查的時候，其實根本不會用到 `m`，我們只關心 `ok` 還是不ok，這時候就是空白識別子的出場時機：
+
+```go
+if _, ok := val.(json.Marshaler); ok {
+    fmt.Printf("value %v of type %T implements json.Marshaler\n", val, val)
+}
+```
+
+當你想保證某變數確實有實作某介面的時候，就會用到這個技巧。例如有個型別，假設是 `json.RawMessage` 好了，它需要自訂的 JSON 格式，它就應該要實作 `json.Marshaler` 介面，但編譯器沒辦法幫你自動檢查。如果它沒有實作正確的介面， JSON 編碼器還是可以把它轉成 JSON，但顯然結果不會是我們想要的。如果要保證我們的實作沒有問題，可以用空白識別子作全域的定義：
+
+```go
+var _ json.Marshaler = (*RawMessage)(nil)
+```
+
+這個定義把 `*RawMessage` 指定給某個 `json.Mashaler` 型別的變數 (空白識別子)，這會強制把 `*RawMessage` 轉型成 `json.Marshaler`，所以如果 `*RawMessage` 沒有實作 `json.Marshaler` 的話，編譯就會出錯，我們也就知道事情不對勁了。
+
+這種寫法指明了我們只是想做型別檢查，而不是要定義一個新的變數。不過也不要看到黑影就開槍，真的不需要把每個型別都加上這種檢查。慣例上我們只在編譯器沒辦法為我們檢查的時候才會用這招，不過這也是很少見的事。
+
+## 嵌入
+
+Go 沒有提供常見的、基於型別的繼承，不過確實可以像繼承那樣，借用先人的智慧來完成工作：把某個型別嵌入到 struct 或介面中。
+
+嵌入介面很簡單，我們之前提過了 `io.Reader` 和 `io.Writer` 兩個介面：
+
+```go
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+```
+
+`io` 套件中還定義了許多其他介面，讓你的型別可以實作這兩個方法。比如 `io.ReadWriter`，它就只是把 `io.Reader` 跟 `io.Writer` 合併成一個介面。我們當然可以把這兩個方法的定義複製貼上，好定義新的介面。不過比較理想的方法是直接把它們嵌進去。
+
+```go
+// ReadWriter is the interface that combines the Reader and Writer interfaces.
+type ReadWriter interface {
+    Reader
+    Writer
+}
+```
+
+這很好懂： *ReadWriter* 既可以當成是 *Reader*，也可以當成是 *Writer*。它是這兩個介面的聯集 (當然這兩個介面必須定義不同的方法)。你只能在介面中嵌入介面。
+
+類似的狀況也可以套用在 struct 的嵌入上，但 struct 的嵌入還有更多值得注意的部份。`bufio` 套件裡有兩個 struct 型別：`bufio.Reader` 和 `bufio.Writer`。如同你所猜測的，它們實作了 `io` 套件中的同名介面。而 `bufio` 也有實作 *ReadWriter*：把 `Reader` 跟 `Writer` 嵌進來。它列出了這兩個型別，但沒有給它們屬性名稱。
+
+```go
+// ReadWriter stores pointers to a Reader and a Writer.
+// It implements io.ReadWriter.
+type ReadWriter struct {
+    *Reader  // *bufio.Reader
+    *Writer  // *bufio.Writer
+}
+```
+
+由於嵌進來的是指標，所以得先初始化之後才能用。如果你把 `ReadWriter` struct 寫成這樣：
+
+```go
+type ReadWriter struct {
+    reader *Reader
+    writer *Writer
+}
+```
+
+那麼相應的方法會綁定在各自的屬性上，你就得自己重寫 `Read` 和 `Write` 方法，把工作轉發給內層，才能符合 `io.ReadWriter` 的要求：
+
+```go
+func (rw *ReadWriter) Read(p []byte) (n int, err error) {
+    return rw.reader.Read(p)
+}
+```
+
+透過嵌入，我們就可以避免這樣的複製貼上問題。你將可以直接存取內嵌的型別所定義的方法，這代表我們一次符合了 `io.Reader`, `io.Writer` 和 `io.ReadWriter` 的定義。
+
+嵌入跟繼承有個很重要的差異。雖然我們可以從外層的型別去呼叫內層定義的方法，但方法的接收器所接收到的會是內層的型別。當我們呼叫 `bufio.ReadWriter` 的 `Read` 方法時，它的情況會跟上上個例子中轉發的動作一樣：`Read` 接收到的不會是 `ReadWriter` 實體，而是 `ReadWriter` 實體內部的某個不具名的 `*Reader` 實體。
+
+你也可以單純為了方便而使用嵌入。下面示範了一個嵌入的屬性，和一個正常的屬性。
+
+```go
+type Job struct {
+    Command string
+    *log.Logger
+}
+```
+
+`Job` 型別現在也有 `Log`, `Logf` 和其他 `*log.Logger` 定義的方法了。當然我們也可以給它一個屬性名稱，不過顯然沒有這個必要。現在只要初始化完之後，我們就可以
+
+```go
+job.Log("starting now...")
+```
+
+`Logger` 也是 `Job` 裡的一個正常屬性，所以我們可以在建構子中初始化它
+
+```go
+func NewJob(command string, logger *log.Logger) *Job {
+    return &Job{command, logger}
+}
+```
+
+或是用複合結構表達式
+
+```go
+job := &Job{command, log.New(os.Stderr, "Job: ", log.Ldate)}
+```
+
+如果我們要直接存取內嵌的型別，那麼它的型別 (忽略套件的部份) 就是它的屬性名稱，就像上面例子中的 `ReadWriter` 一樣。這個例子裡，如果我們要某個 `Job` 型別的變數 `job` 裡的 `log.Logger`，那應該要用 `job.Logger`。當需要覆寫它的方法時會很有用：
+
+```go
+func (job *Job) Logf(format string, args ...interface{}) {
+    job.Logger.Logf("%q: %s", job.Command, fmt.Sprintf(format, args...))
+}
+```
+
+嵌入機制有造成命名衝突的可能，但解決的規則也很簡單。首先，外層的屬性和方法會蓋掉內層的屬性和方法。如果 `log.Logger` 有一個屬性也叫 `Command`，那它就只能透過 `job.Logger.Command` 的方式存取。
+
+其次，如果在同一層出現命名衝突，通常這會是個錯誤。如果 `Job` 型別裡已經有 `Logger` 屬性的情況下嵌了 `log.Logger` 進去，這八成是哪裡出了問題。然而，如果這衝突的命名只出現在定義的時候，外部程式不會存取到的話就沒問題。這是為了保護內層的型別不會被外部修改；顯然在內嵌型別中，不會被外部使用的那些資料就不需要這種保護。
