@@ -2091,3 +2091,146 @@ func init() {
     }
 }
 ```
+
+### Recover
+
+當你呼叫 `panic` 的時候，包括執行時期的錯誤 (像是陣列索引超過範圍或是型別斷言失敗) 造成的 `panic` 在內，它會循著現在的堆疊一路返回，執行所有 `defer` 函式。如果堆疊沒有更多的返回資訊的話，程式就會結束。然而，你還是可以使用內建的 `recover` 函式來重新取得控制，甚至是繼續正常的執行。
+
+`recover` 會停止，不再繼續延著堆疊一路返回，同時回傳當初傳給 `panic` 的參數。由於處理堆疊的時候只會執行 `defer` 裡的程式，所以 `recover` 要跟 `defer` 一起用才有意義。
+
+
+`recover` 的其中一種用法，是把伺服器的中，出錯的 goroutine 中斷，但不去影響其他的 goroutine。
+
+```g
+func server(workChan <-chan *Work) {
+    for work := range workChan {
+        go safelyDo(work)
+    }
+}
+
+func safelyDo(work *Work) {
+    defer func() {
+        if err := recover(); err != nil {
+            log.Println("work failed:", err)
+        }
+    }()
+    do(work)
+}
+```
+
+在這個範例中，如果 `do(work)` 發生了 panic，結果會記錄下來，並且這個 goroutine 會結束執行，不會中斷其他的 goroutine。你不需要再 `defer` 中加上什麼東西來完成這件事，一個 `recover` 就夠了。
+
+除非是在 `defer` 裡直接呼叫，不然 `recover` 一律會回傳 `nil`。所以你可以在 `defer` 裡呼叫那些有使用到 `panic` 和 `recover` 的程式庫。舉例來說，`safelyDo` 裡的 `defer` 可以在 `recover` 之前先呼叫 `log.Println` 而不會受到目前 `panic` 的狀態干擾。
+
+靠著這個模式，`do` 函式 (和它所呼叫的其他程式庫) 可以用 `panic` 來處理各種問題。在複雜程式中，我們可以用這種模式簡化錯誤處理。我們用一個理想化的 `regex` 套件來作例子，它會透過 `panic` 回報一個代表解析失敗的自訂錯誤型別。以下是這個錯誤型別 `Error`, `error` 方法 和 `Compile` 函式的定義：
+
+```go
+// Error is the type of a parse error; it satisfies the error interface.
+type Error string
+func (e Error) Error() string {
+    return string(e)
+}
+
+// error is a method of *Regexp that reports parsing errors by
+// panicking with an Error.
+func (regexp *Regexp) error(err string) {
+    panic(Error(err))
+}
+
+// Compile returns a parsed representation of the regular expression.
+func Compile(str string) (regexp *Regexp, err error) {
+    regexp = new(Regexp)
+    // doParse will panic if there is a parse error.
+    defer func() {
+        if e := recover(); e != nil {
+            regexp = nil    // Clear return value.
+            err = e.(Error) // Will re-panic if not a parse error.
+        }
+    }()
+    return regexp.doParse(str), nil
+}
+```
+
+如果 `doParse` 發生錯誤，呼叫 `recover` 的那段程式會把回傳值設成 `nil`，因為 `defer` 裡可以修改有預先命名的回傳值。而下一行會用型別斷言的方式檢查錯誤是不是我們自訂的那個型別。如果不是的話，型別斷言會失敗，產生一個新的執行時期錯誤，於是又會繼續循著堆疊返回，就像沒有呼叫過 `recover` 那樣。這代表如果是一些意料外的錯誤，比如陣列索引超出範圍一類的，這種錯誤不會被我們捕捉到。
+
+`error` 方法 (這不會跟內建的 `error` 型別衝突，因為方法是綁定在某個型別裡面的) 可以讓你產生解析錯誤，又不用去花費精神思考堆疊處理順序的問題。
+
+```go
+if pos == 0 {
+    re.error("'*' illegal at start of expression")
+}
+```
+
+這個模式只應該在套件的內部使用。`Parse` 把 `panic` 轉成了錯誤碼，而非把它傳到套件之外。這是個該遵守的好原則。
+
+另外，這個慣例會改變真正的錯誤。然而，改變前後的錯誤都會列在錯誤回報中，所以問題的根源還是可以找得到。通常這樣已經很足夠，不論如何程式還是中斷了。但你若想要保留原本的錯誤類型，你可以再多寫幾行程式來過濾並重新發出原本的錯誤。這就當成作業留給讀者自己練習了。
+
+## 一個 web 伺服器
+
+讓我們用一個完整的 Go 程式來當作結束。這個程式其實比較像是在轉發其他的 web 服務。Google 提供了 [http://chart.apis.google.com](http://chart.apis.google.com) 這個把資料轉成圖表的服務。這個服務不太方便從瀏覽器中使用，因為你得把資料用 URL 參數傳過去。我們的程式提供了一個比較簡便的作法：提供一個表單，讓你透過表單把文字轉成二維條碼。你可以透過用手機掃描二維條碼來拜訪你輸入的網址。
+
+以下是完整的程式碼：
+
+```go
+package main
+
+import (
+    "flag"
+    "html/template"
+    "log"
+    "net/http"
+)
+
+var addr = flag.String("addr", ":1718", "http service address") // Q=17, R=18
+
+var templ = template.Must(template.New("qr").Parse(templateStr))
+
+func main() {
+    flag.Parse()
+    http.Handle("/", http.HandlerFunc(QR))
+    err := http.ListenAndServe(*addr, nil)
+    if err != nil {
+        log.Fatal("ListenAndServe:", err)
+    }
+}
+
+func QR(w http.ResponseWriter, req *http.Request) {
+    templ.Execute(w, req.FormValue("s"))
+}
+
+const templateStr = `
+<html>
+<head>
+<title>QR Link Generator</title>
+</head>
+<body>
+{{if .}}
+<img src="http://chart.apis.google.com/chart?chs=300x300&cht=qr&choe=UTF-8&chl={{.}}" />
+<br>
+{{.}}
+<br>
+<br>
+{{end}}
+<form action="/" name=f method="GET"><input maxLength=1024 size=70
+name=s value="" title="Text to QR Encode"><input type=submit
+value="Show QR" name=qr>
+</form>
+</body>
+</html>
+`
+```
+
+到 `main` 函式之前的程式應該都算好懂。有一個命令列參數是設定我們的伺服器的 HTTP port。`templ` 變數則是 HTML 樣版，我們稍後會解釋它。
+
+`main` 函式解析命令列參數，然後用我們之前提到的技巧把 `QR` 函式註冊成 HTTP 請求的處理程式。`http.ListenAndServe` 會啟動 HTTP 伺服器，在伺服器運作期間主程式是暫停的。
+
+`QR` 接收請求，然後把表單資料塞進樣版裡。
+
+
+`html/template` 套件是一個強大的樣版引擎，而我們現在只用到一點皮毛。大致上，它會即時地根據你傳給 `templ.Execute` 的參數把改寫 HTML 樣版。在樣版 (templaStr) 中，樣版引擎會依照雙重大括號包住的部份執行特定的動作。從 `{{if .}}` 到 `{{end}}` 這段代表如果目前的資料，又稱為 `.`，不是空的，那就顯示或執行裡面的東西。也就是說如果目前資料是空的，這段就不會顯示出來。
+
+接下來的兩個 `{{.}}` 會把 (表單傳來的) 資料顯示出來。樣版引擎會幫你處理好跳脫特殊字元的問題。
+
+剩下的是就單純的 HTML。如果覺得我們講解的太簡單，你可以參考 [template 套件的說明文件](http://golang.org/pkg/html/template/)。
+
+我們只用了幾行程式加上一些 HTML 碼，就做好了一個實用的小程式。Go 語言強大之處讓你可以用短短幾行程式就做到很多事情。
