@@ -1,4 +1,4 @@
-# Effective Go 正體中文翻譯
+# Effective Go 正體中文翻譯 (2015.09)
 
 ## 特殊字詞的翻譯
 
